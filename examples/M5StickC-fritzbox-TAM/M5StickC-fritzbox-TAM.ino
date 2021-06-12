@@ -1,16 +1,16 @@
 /*
-   M5StickC as simple ON/OFF switch for the TAM
+   an ESP32/8266 module  as simple ON/OFF switch for the TAM
 
    https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AHA-HTTP-Interface.pdf
    https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/x_tam.pdf
 
 */
-//#define M5Stick_C //uncomment this line if the board match
-#if defined(M5Stick_C)
 
-#include <M5StickC.h>
+#define BUTTON_PIN 2 //change it to the button pin
 #include <tr064.h>
 
+
+volatile bool toggleTAM = false;
 
 const char* WIFI_SSID = "your SSID here";
 const char* WIFI_PASS = "the wifi password";
@@ -25,27 +25,15 @@ unsigned long lastConnection = 0;
 TR064 connection(PORT, FRITZBOX_DOMAIN, FRITZBOX_AIN, FRITZBOX_PASS);
 
 void setup() {
-  M5.begin();
-  pinMode(M5_BUTTON_HOME, INPUT);
+  pinMode(BUTTON_PIN, INPUT);
+   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonPress, FALLING);
 
   Serial.begin( 115200 );
   if (Serial) Serial.print("ESP Board MAC Address:  ");
   if (Serial) Serial.println(WiFi.macAddress());
-  M5.Lcd.fillScreen(WHITE);
-
-  M5.Lcd.setRotation(3);
-  M5.Lcd.setCursor(2, 10);
-  M5.Lcd.setTextColor(BLACK);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.print(WiFi.macAddress());
-  M5.Lcd.setTextSize(12);
 
   if (connectWiFi()) {
     if (Serial) Serial.println( "WiFi connection established" );
-    M5.Lcd.fillScreen(ORANGE);
-    M5.Lcd.setCursor(15, 15);
-    M5.Lcd.print("---");
-    delay(100);
     if (Serial) Serial.println("Initialize TR-064 connection");
     connection.debug_level = DEBUG_WARNING; //DEBUG_VERBOSE; //0: None, 1: Errors, 2: Warning, 3: Info, 4: Verbose
     connection.init();
@@ -53,21 +41,23 @@ void setup() {
 }
 
 void loop() {
-  M5.update();
   yield();
   connectWiFi();
   unsigned long int now = millis();
   if ( (now - lastConnection) > UPDATE_INTERVAL ) {
     if (Serial) Serial.print("Routine TAM check: ");
-    if (Serial) Serial.println(refreshScreen(getABStatus() == 1) ? "ON" : "OFF");
+    if (Serial) Serial.println(getTAMStatus() == 1 ? "ON" : "OFF");
     lastConnection = millis();
   }
-  if (M5.BtnA.wasPressed()) {
-    ButtonACallback();
+  if (toggleTAM) {
+    ButtonCallback();
+    toggleTAM = false;
   }
 }
 
-
+ICACHE_RAM_ATTR void buttonPress() {
+  toggleTAM = true;
+}
 bool connectWiFi() {
   if ( WiFi.status() == WL_CONNECTED ) {
     return true;
@@ -78,17 +68,13 @@ bool connectWiFi() {
 
     if ( WiFi.waitForConnectResult() != WL_CONNECTED ) {
       if (Serial) Serial.println( "WiFi connection failed" );
-      M5.Lcd.fillScreen(ORANGE);
-      M5.Lcd.setTextColor(WHITE);
-      M5.Lcd.setCursor(15, 15);
-      M5.Lcd.print("ERR");
       return false;
     }
     return true;
   }
 }
 
-int getABStatus() {
+int getTAMStatus() {
   String params[][2] = {"NewIndex", "0"};
   int a = 1;
   String req[][2] = {"NewEnable", "0"};
@@ -97,43 +83,17 @@ int getABStatus() {
   return req[0][1].toInt();
 }
 
-bool switchABStatus() {
-  int currentValue = getABStatus();
+bool switchTAMStatus() {
+  int currentValue = getTAMStatus();
   int newValue = (currentValue == 1) ? 0 : 1;
   String params[][2] = {{"NewIndex", "0"}, {"NewEnable", String(newValue)}};
   int a = 2;
   connection.action("urn:dslforum-org:service:X_AVM-DE_TAM:1", "SetEnable", params, a);
-  return (getABStatus() == newValue) ? true : false;
+  return (getTAMStatus() == newValue) ? true : false;
 }
 
-void ButtonACallback() {
+void ButtonCallback() {
   if (Serial) Serial.print("Switch TAM Status: ");
-  if (Serial) Serial.println((switchABStatus()) ? "success" : "fail");
-  refreshScreen(getABStatus());
+  if (Serial) Serial.println((switchTAMStatus()) ? "success" : "fail");
   return;
 }
-
-int refreshScreen(int value) {
-  if (value == 1) {
-    M5.Lcd.setTextColor(BLACK);
-    M5.Lcd.fillScreen(TFT_DARKGREEN);
-    M5.Lcd.setCursor(15, 15);
-    M5.Lcd.print("ON");
-  }
-  else {
-    M5.Lcd.setTextColor(WHITE);
-    M5.Lcd.fillScreen(TFT_RED);
-    M5.Lcd.setCursor(15, 15);
-    M5.Lcd.print("OFF");
-  }
-  return value;
-}
-
-#else
-void setup() {
-
-}
-void loop() {
-  yield();
-}
-#endif
